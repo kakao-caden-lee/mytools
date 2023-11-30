@@ -56,12 +56,11 @@ type Items struct {
 }
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
-	//var wg = new(sync.WaitGroup)
-
 	argFile := flag.String("f", "", "Add XML file containing Burp Suite history")
 	authInput := flag.String("header", "foo: bar", "Add header to auth testing.")
 	flag.Parse()
+
+	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	//Burp suite 히스토리 파일 파싱
 	connects := parseBurpHistoryXML(*argFile)
@@ -69,7 +68,7 @@ func main() {
 	// requestApi 함수로부터 데이터를 받을 채널
 	ch := make(chan connect, len(connects))
 
-	// 파싱하여 얻은 Request 정보로 실제 요청을 수행 (고루틴)
+	// 파싱하여 얻은 Request 정보로 실제 요청을 고루틴으로 수행
 	// for idx, conn := range connects { //range로 고루틴을 실행하면 마지막 인자만 실행됨..왜 그렇지?
 	for i := 0; i < len(connects); i++ {
 		if connects[i].res == nil {
@@ -78,6 +77,7 @@ func main() {
 		}
 	}
 
+	// 채널로 받은 응답 값 출력
 	for i := 0; i < len(connects); i++ {
 		if connects[i].res != nil {
 			fmt.Printf("[%s] (%s) %s\n", connects[i].res.Status, connects[i].req.Method, connects[i].req.URL)
@@ -96,7 +96,7 @@ func parseBurpHistoryXML(file string) []connect {
 	xmlFile, err := os.Open(file)
 	if err != nil {
 		log.Fatal("[!] Input correct file path, Please.")
-		os.Exit(0)
+		panic(err)
 	}
 
 	defer xmlFile.Close()
@@ -106,7 +106,7 @@ func parseBurpHistoryXML(file string) []connect {
 	byteValue, err := io.ReadAll(xmlFile)
 	if err != nil {
 		log.Fatal("[!] Cannot read XML.")
-		os.Exit(0)
+		panic(err)
 	}
 
 	// Burp History XML이 파싱되어 저장될 구조체
@@ -120,7 +120,7 @@ func parseBurpHistoryXML(file string) []connect {
 
 		if err != nil {
 			log.Fatal("[!] Cannot decode contents in file.")
-			os.Exit(0)
+			panic(err)
 		}
 
 		// []byte를 bufio.Reader로 형 변환
@@ -130,15 +130,17 @@ func parseBurpHistoryXML(file string) []connect {
 		req, err := http.ReadRequest(reqData)
 		if err != nil {
 			log.Fatal("[!] Cannot parse request in file.")
-			os.Exit(0)
+			panic(err)
 		}
 
+		// req (http.Request) 에 URL 경로 값이 아닌, Full URL을 대입
+		// req.RequestURI 값이 있을 경우, http.Request.URL 보다 우선해서 쓰이므로 빈 값으로 초기화
 		req.RequestURI = ""
 
 		req.URL, err = url.Parse(items.Item[i].URL)
 		if err != nil {
 			log.Fatal("[!] Cannot parse request in file.")
-			os.Exit(0)
+			panic(err)
 		}
 
 		connects = append(connects, connect{req, nil})
@@ -160,7 +162,14 @@ func requestApi(conn connect, auth string, ch chan connect) {
 	}()
 
 	headerSet := strings.Split(auth, ":")
-	conn.req.Header.Add(strings.Trim(headerSet[0], " "), strings.Trim(headerSet[1], " "))
+	headerName := strings.Trim(headerSet[0], " ")
+	headerData := strings.Trim(headerSet[1], " ")
+
+	if _, ok := conn.req.Header[headerName]; ok {
+		conn.req.Header[headerName] = []string{headerData}
+	} else {
+		conn.req.Header.Add(headerName, headerData)
+	}
 
 	// HTTP 연결 수 제한 설정
 	t := http.DefaultTransport.(*http.Transport).Clone()
@@ -168,7 +177,7 @@ func requestApi(conn connect, auth string, ch chan connect) {
 	t.MaxConnsPerHost = 5
 	t.MaxIdleConnsPerHost = 10
 
-	// 제한 적용하여 클라이언트 생성
+	// 클라이언트 생성
 	client := &http.Client{
 		Timeout:   5 * time.Second,
 		Transport: t,
