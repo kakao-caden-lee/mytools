@@ -1,6 +1,7 @@
 package Req
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"runtime"
@@ -10,12 +11,12 @@ import (
 )
 
 type Connect struct {
-	req *http.Request
-	res *http.Response
+	Req *http.Request
+	Res *http.Response
 }
 
 // *http.Request 슬라이스를 받아 고루틴으로 요청 실행 후, Connect 구조체에 Request, Response를 채워 반환
-func Req(reqs []*http.Request, header string) []Connect {
+func ExecReq(reqs []*http.Request, header string) []Connect {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Fatal("Recovering from panic:", r)
@@ -56,6 +57,8 @@ func Req(reqs []*http.Request, header string) []Connect {
 	for i := 0; i < len(conns); i++ {
 		wg.Add(1)
 		go func(i int) {
+			fmt.Printf("[*] Request [%d/%d] ... %s\n", i, len(conns), reqs[i].URL)
+
 			resp, err := client.Do(reqs[i])
 			if err != nil {
 				panic(err)
